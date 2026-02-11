@@ -2,6 +2,8 @@
 
 Training reinforcement learning agents to play QWOP using the [qwop-gym](https://github.com/smanolloff/qwop-gym) environment.
 
+**Goal:** Beat the current world record of [100 meters in 45.530 seconds](https://www.speedrun.com/qwop/runs/y9vk0k2m).
+
 ## Repository Structure
 
 ```
