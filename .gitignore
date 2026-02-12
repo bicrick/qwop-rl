@@ -1,58 +1,16 @@
-# Python
+*.sublime-workspace
+*.sublime-project
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Virtual environments
-.venv/
-venv/
-ENV/
-env/
-
-# Conda
-.conda/
-
-# Training data and logs
-qwop-training/data/
-qwop-training/wandb/
-qwop-training/tmp/
-
-# ChromeDriver
-qwop-training/chromedriver
-qwop-training/chromedriver.exe
-
-# Config files (auto-generated)
-qwop-training/config/env.yml
-
-# Miniconda installer
-miniconda_installer.sh
-
-# OS files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
-*.log
-
-# Temporary files
-tmp/
-temp/
-qwop-gym/
+/.venv*
+/vendor
+/wandb
+/data
+/tmp
+/dist
+/config
+/doc/demo.mp4
+/config/spectate_record.yml
+/test.py
+/build
+*.egg-info
+QWOP.min.js
