@@ -23,37 +23,45 @@ echo ""
 # Step 1: Install Miniconda if not present
 echo -e "${YELLOW}[1/6] Checking for Conda installation...${NC}"
 if ! command -v conda &> /dev/null; then
-    echo "Conda not found. Installing Miniconda..."
-    
-    if [[ "$OS" == "Linux" ]]; then
-        if [[ "$ARCH" == "x86_64" ]]; then
-            MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-        elif [[ "$ARCH" == "aarch64" ]]; then
-            MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh"
+    # Check if Miniconda directory already exists
+    if [[ -d "$HOME/miniconda3" ]]; then
+        echo -e "${YELLOW}Miniconda directory found at $HOME/miniconda3. Initializing...${NC}"
+        eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
+        conda init bash
+        echo -e "${GREEN}Miniconda initialized${NC}"
+    else
+        echo "Conda not found. Installing Miniconda..."
+        
+        if [[ "$OS" == "Linux" ]]; then
+            if [[ "$ARCH" == "x86_64" ]]; then
+                MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+            elif [[ "$ARCH" == "aarch64" ]]; then
+                MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh"
+            else
+                echo -e "${RED}Unsupported architecture: $ARCH${NC}"
+                exit 1
+            fi
+        elif [[ "$OS" == "Darwin" ]]; then
+            if [[ "$ARCH" == "arm64" ]]; then
+                MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh"
+            else
+                MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh"
+            fi
         else
-            echo -e "${RED}Unsupported architecture: $ARCH${NC}"
+            echo -e "${RED}Unsupported OS: $OS${NC}"
             exit 1
         fi
-    elif [[ "$OS" == "Darwin" ]]; then
-        if [[ "$ARCH" == "arm64" ]]; then
-            MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh"
-        else
-            MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh"
-        fi
-    else
-        echo -e "${RED}Unsupported OS: $OS${NC}"
-        exit 1
+        
+        wget -q --show-progress "$MINICONDA_URL" -O miniconda_installer.sh
+        bash miniconda_installer.sh -b -p "$HOME/miniconda3"
+        rm miniconda_installer.sh
+        
+        # Initialize conda
+        eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
+        conda init bash
+        
+        echo -e "${GREEN}Miniconda installed successfully${NC}"
     fi
-    
-    wget -q --show-progress "$MINICONDA_URL" -O miniconda_installer.sh
-    bash miniconda_installer.sh -b -p "$HOME/miniconda3"
-    rm miniconda_installer.sh
-    
-    # Initialize conda
-    eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
-    conda init bash
-    
-    echo -e "${GREEN}Miniconda installed successfully${NC}"
 else
     echo -e "${GREEN}Conda already installed${NC}"
     eval "$(conda shell.bash hook)"
@@ -119,70 +127,161 @@ echo -e "${GREEN}Chrome found at: $CHROME_PATH${NC}"
 echo ""
 
 # Step 4: Download ChromeDriver
-echo -e "${YELLOW}[4/6] Downloading ChromeDriver...${NC}"
-
-# Get Chrome version
-if [[ "$OS" == "Linux" ]]; then
-    CHROME_VERSION=$($CHROME_PATH --version | grep -oP '\d+\.\d+\.\d+' | head -1)
-elif [[ "$OS" == "Darwin" ]]; then
-    CHROME_VERSION=$("$CHROME_PATH" --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-fi
-
-CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
-echo "Chrome version: $CHROME_VERSION (major: $CHROME_MAJOR_VERSION)"
-
-# Determine platform for ChromeDriver
-if [[ "$OS" == "Linux" ]]; then
-    PLATFORM="linux64"
-elif [[ "$OS" == "Darwin" ]]; then
-    if [[ "$ARCH" == "arm64" ]]; then
-        PLATFORM="mac-arm64"
-    else
-        PLATFORM="mac-x64"
-    fi
-fi
-
-# Download ChromeDriver
-CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/$PLATFORM/chromedriver-$PLATFORM.zip"
-
-echo "Downloading ChromeDriver from: $CHROMEDRIVER_URL"
-if wget -q --spider "$CHROMEDRIVER_URL" 2>/dev/null; then
-    wget -q --show-progress "$CHROMEDRIVER_URL" -O chromedriver.zip
-    unzip -q -o chromedriver.zip
-    
-    # Move chromedriver to project root
-    if [[ -d "chromedriver-$PLATFORM" ]]; then
-        mv "chromedriver-$PLATFORM/chromedriver" ./chromedriver
-        rm -rf "chromedriver-$PLATFORM"
-    fi
-    rm chromedriver.zip
-    chmod +x chromedriver
-    echo -e "${GREEN}ChromeDriver downloaded successfully${NC}"
-else
-    echo -e "${YELLOW}Exact version not found, trying latest stable...${NC}"
-    # Fallback to latest stable
-    LATEST_URL="https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
-    wget -q "$LATEST_URL" -O versions.json
-    
-    # This is a simplified approach - you may need jq for better parsing
-    echo -e "${YELLOW}Please download ChromeDriver manually from:${NC}"
-    echo "https://googlechromelabs.github.io/chrome-for-testing/"
-    rm -f versions.json
-fi
+echo -e "${YELLOW}[4/6] Checking for ChromeDriver...${NC}"
 
 CHROMEDRIVER_PATH="$(pwd)/chromedriver"
+CHROMEDRIVER_DOWNLOADED=false
+
+# Check if ChromeDriver already exists
+if [[ -f "$CHROMEDRIVER_PATH" ]]; then
+    echo -e "${GREEN}ChromeDriver already exists at: $CHROMEDRIVER_PATH${NC}"
+else
+    echo "ChromeDriver not found. Setting up..."
+    
+    # Get Chrome version
+    if [[ "$OS" == "Linux" ]]; then
+        CHROME_VERSION=$($CHROME_PATH --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+    elif [[ "$OS" == "Darwin" ]]; then
+        CHROME_VERSION=$("$CHROME_PATH" --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    fi
+    
+    CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
+    echo "Chrome version: $CHROME_VERSION (major: $CHROME_MAJOR_VERSION)"
+    
+    # Determine platform for ChromeDriver
+    if [[ "$OS" == "Linux" ]]; then
+        if [[ "$ARCH" == "aarch64" ]]; then
+            # For aarch64, try google's platform first, but it likely doesn't exist
+            PLATFORM="linux64"
+        elif [[ "$ARCH" == "x86_64" ]]; then
+            PLATFORM="linux64"
+        else
+            echo -e "${RED}Unsupported Linux architecture for ChromeDriver: $ARCH${NC}"
+            exit 1
+        fi
+    elif [[ "$OS" == "Darwin" ]]; then
+        if [[ "$ARCH" == "arm64" ]]; then
+            PLATFORM="mac-arm64"
+        else
+            PLATFORM="mac-x64"
+        fi
+    fi
+    
+    # Try to download ChromeDriver from Google's official source
+    echo "Attempting to download ChromeDriver from Google Chrome for Testing..."
+    CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/$PLATFORM/chromedriver-$PLATFORM.zip"
+    
+    if wget -q --spider "$CHROMEDRIVER_URL" 2>/dev/null; then
+        echo "Downloading: $CHROMEDRIVER_URL"
+        if wget -q --show-progress "$CHROMEDRIVER_URL" -O chromedriver.zip; then
+            if unzip -q -o chromedriver.zip; then
+                # Move chromedriver to project root
+                if [[ -d "chromedriver-$PLATFORM" ]]; then
+                    mv "chromedriver-$PLATFORM/chromedriver" ./chromedriver
+                    rm -rf "chromedriver-$PLATFORM"
+                fi
+                rm -f chromedriver.zip
+                chmod +x chromedriver
+                echo -e "${GREEN}ChromeDriver downloaded successfully${NC}"
+                CHROMEDRIVER_DOWNLOADED=true
+            fi
+        fi
+    else
+        echo -e "${YELLOW}Exact version not found at Google source, trying alternative methods...${NC}"
+    fi
+    
+    # Fallback for aarch64: use ChromeDriver from Chromium snap if available
+    if [[ "$CHROMEDRIVER_DOWNLOADED" == false ]] && [[ "$OS" == "Linux" ]] && [[ "$ARCH" == "aarch64" ]]; then
+        echo "Attempting to use ChromeDriver from Chromium snap (for aarch64)..."
+        if [[ -f "/snap/chromium/current/usr/lib/chromium-browser/chromedriver" ]]; then
+            echo "Found ChromeDriver in snap, copying..."
+            cp /snap/chromium/current/usr/lib/chromium-browser/chromedriver ./chromedriver
+            chmod +x chromedriver
+            echo -e "${GREEN}ChromeDriver copied from snap successfully${NC}"
+            CHROMEDRIVER_DOWNLOADED=true
+        elif [[ -f "/usr/bin/chromedriver" ]]; then
+            echo "Found ChromeDriver in /usr/bin, copying..."
+            cp /usr/bin/chromedriver ./chromedriver
+            chmod +x chromedriver
+            echo -e "${GREEN}ChromeDriver copied from /usr/bin successfully${NC}"
+            CHROMEDRIVER_DOWNLOADED=true
+        fi
+    fi
+    
+    # Try full version with patch number if direct download failed
+    if [[ "$CHROMEDRIVER_DOWNLOADED" == false ]]; then
+        echo -e "${YELLOW}Trying to find full version string with patch number...${NC}"
+        LATEST_URL="https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
+        if wget -q "$LATEST_URL" -O versions.json 2>/dev/null; then
+            if command -v jq &> /dev/null; then
+                FULL_VERSION=$(jq -r ".versions[] | select(.version | startswith(\"$CHROME_MAJOR_VERSION.\")) | .version" versions.json | head -1)
+                if [[ ! -z "$FULL_VERSION" ]]; then
+                    echo "Found full version: $FULL_VERSION"
+                    CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/$FULL_VERSION/$PLATFORM/chromedriver-$PLATFORM.zip"
+                    echo "Trying: $CHROMEDRIVER_URL"
+                    
+                    if wget -q --spider "$CHROMEDRIVER_URL" 2>/dev/null; then
+                        wget -q --show-progress "$CHROMEDRIVER_URL" -O chromedriver.zip
+                        if unzip -q -o chromedriver.zip; then
+                            if [[ -d "chromedriver-$PLATFORM" ]]; then
+                                mv "chromedriver-$PLATFORM/chromedriver" ./chromedriver
+                                rm -rf "chromedriver-$PLATFORM"
+                            fi
+                            rm -f chromedriver.zip
+                            chmod +x chromedriver
+                            echo -e "${GREEN}ChromeDriver downloaded successfully${NC}"
+                            CHROMEDRIVER_DOWNLOADED=true
+                        fi
+                    fi
+                fi
+            fi
+            rm -f versions.json
+        fi
+    fi
+    
+    # Final result
+    if [[ "$CHROMEDRIVER_DOWNLOADED" == false ]]; then
+        if [[ ! -f "$CHROMEDRIVER_PATH" ]]; then
+            echo -e "${RED}ERROR: Could not obtain ChromeDriver${NC}"
+            echo "Please download manually from: https://googlechromelabs.github.io/chrome-for-testing/"
+            echo "Select ChromeDriver version $CHROME_VERSION for $PLATFORM"
+            echo "Extract and place in: $CHROMEDRIVER_PATH"
+            exit 1
+        fi
+    fi
+fi
 echo ""
 
-# Step 5: Install Python dependencies
-echo -e "${YELLOW}[5/6] Installing Python dependencies...${NC}"
+# Step 5: Install Xvfb for headless training
+echo -e "${YELLOW}[5/7] Checking for Xvfb (virtual display)...${NC}"
+if command -v Xvfb &> /dev/null; then
+    echo -e "${GREEN}Xvfb already installed${NC}"
+else
+    echo "Installing Xvfb for headless training..."
+    if [[ "$OS" == "Linux" ]]; then
+        if command -v apt-get &> /dev/null; then
+            # Debian/Ubuntu
+            sudo apt-get update -qq
+            sudo apt-get install -y xvfb
+        elif command -v yum &> /dev/null; then
+            # RHEL/CentOS
+            sudo yum install -y xorg-x11-server-Xvfb
+        fi
+    fi
+    echo -e "${GREEN}Xvfb installed${NC}"
+fi
+echo ""
+
+# Step 6: Install Python dependencies
+echo -e "${YELLOW}[6/7] Installing Python dependencies...${NC}"
 pip install -q --upgrade pip
 pip install -q qwop-gym
 
 echo -e "${GREEN}Python dependencies installed${NC}"
 echo ""
 
-# Step 6: Patch QWOP source code
-echo -e "${YELLOW}[6/6] Patching QWOP source code...${NC}"
+# Step 7: Patch QWOP source code
+echo -e "${YELLOW}[7/7] Patching QWOP source code...${NC}"
 curl -sL https://www.foddy.net/QWOP.min.js | qwop-gym patch
 echo -e "${GREEN}QWOP source code patched${NC}"
 echo ""
@@ -205,7 +304,12 @@ echo "=========================================="
 echo -e "${GREEN}Setup Complete!${NC}"
 echo "=========================================="
 echo ""
-echo "To activate the environment, run:"
+echo "To use conda in this shell session, run:"
+echo "  source ~/.bashrc"
+echo "  # OR"
+echo "  eval \"\$(\$HOME/miniconda3/bin/conda shell.bash hook)\""
+echo ""
+echo "Then activate the environment:"
 echo "  conda activate qwop"
 echo ""
 echo "To test the installation, run:"
