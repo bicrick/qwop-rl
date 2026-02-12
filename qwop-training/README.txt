@@ -1,51 +1,81 @@
 QWOP Training Setup for Lambda Labs
 ====================================
 
+IMPORTANT: For Ubuntu ARM64 Instances
+--------------------------------------
+This setup is optimized for Ubuntu ARM64 (aarch64) instances.
+It uses distro-provided Chromium + ChromeDriver for compatibility.
+
 Quick Start:
 -----------
-1. SSH into Lambda instance
-2. Clone this repo: git clone <repo-url>
-3. cd qwop-training
-4. ./setup_lambda.sh
-5. conda activate qwop
-6. ./lambda_train.sh train_ppo
+1. Connect to Lambda instance via Cursor Remote SSH
 
-What's included:
----------------
-- setup_lambda.sh    : Automated setup (installs everything)
-- lambda_train.sh    : Run training with virtual display
-- verify_setup.sh    : Verify installation
+2. Clone this repo:
+   git clone <your-repo-url> qwop-wr
+   cd qwop-wr/qwop-training
 
-The setup script will:
-- Install Miniconda
-- Create Python 3.10 environment
-- Install Chrome/Chromium
-- Download ChromeDriver
-- Install qwop-gym from PyPI
-- Patch QWOP source
-- Create config files
+3. Run automated setup:
+   ./setup_lambda.sh
 
-Training:
---------
+
+4. Activate environment and train:
+   source ~/.bashrc
+   conda activate qwop
+   ./lambda_train.sh train_ppo
+
+What Gets Installed:
+-------------------
+- qwop-gym is installed via pip (no need to copy qwop-gym directory)
+- Chromium and ChromeDriver installed together (ensures version match)
+- All dependencies in isolated conda environment
+- Virtual display for headless training
+
+Training Commands:
+-----------------
 ./lambda_train.sh train_ppo     # PPO (recommended)
 ./lambda_train.sh train_dqn     # DQN
 ./lambda_train.sh train_qrdqn   # QRDQN
 ./lambda_train.sh spectate      # Watch trained model
 
-Monitor with TensorBoard:
-------------------------
-tensorboard --logdir data/ --host 0.0.0.0 --port 6006
+TensorBoard (Real-time Monitoring):
+-----------------------------------
+On remote instance:
+  tensorboard --logdir data/ --host 0.0.0.0 --port 6006
 
-# From local machine:
-ssh -L 6006:localhost:6006 ubuntu@<lambda-ip>
-# Open http://localhost:6006
+Cursor will detect the port and offer to forward it automatically.
+Or manually: Command Palette -> "Forward a Port" -> 6006
+Then open http://localhost:6006 in your browser
 
-Config files:
-------------
-Edit config/*.yml to customize training parameters
+Configuration:
+-------------
+- Edit config/*.yml files to customize training hyperparameters
+- config/env.yml contains browser/driver paths (auto-generated)
+
+Architecture Notes (ARM64/aarch64):
+----------------------------------
+- Google does NOT provide official ChromeDriver for linux-arm64
+- We use Ubuntu's chromium-browser + chromium-chromedriver packages
+- These are compiled for ARM64 and version-matched
+- System ChromeDriver is copied to project directory for consistency
 
 Troubleshooting:
 ---------------
-- Display errors: sudo apt-get install xvfb
-- ChromeDriver mismatch: Download from https://googlechromelabs.github.io/chrome-for-testing/
-- Check setup: ./verify_setup.sh
+1. Version mismatch errors:
+   sudo apt-get install --reinstall chromium-browser chromium-chromedriver
+
+2. Display/rendering errors:
+   sudo apt-get install xvfb
+   
+3. Conda not found after setup:
+   source ~/.bashrc
+   OR
+   eval "$(~/miniconda3/bin/conda shell.bash hook)"
+
+4. Check installation:
+   chromium --version
+   chromedriver --version
+   (Major versions should match!)
+
+5. Test qwop-gym:
+   conda activate qwop
+   qwop-gym play

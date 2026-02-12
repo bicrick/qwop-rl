@@ -21,7 +21,7 @@ echo -e "${GREEN}Detected Architecture: $ARCH${NC}"
 echo ""
 
 # Step 1: Install Miniconda if not present
-echo -e "${YELLOW}[1/6] Checking for Conda installation...${NC}"
+echo -e "${YELLOW}[1/7] Checking for Conda installation...${NC}"
 if ! command -v conda &> /dev/null; then
     # Check if Miniconda directory already exists
     if [[ -d "$HOME/miniconda3" ]]; then
@@ -69,7 +69,7 @@ fi
 echo ""
 
 # Step 2: Create/Update Conda Environment
-echo -e "${YELLOW}[2/6] Setting up Conda environment 'qwop'...${NC}"
+echo -e "${YELLOW}[2/7] Setting up Conda environment 'qwop'...${NC}"
 if conda env list | grep -q "^qwop "; then
     echo "Environment 'qwop' already exists. Updating..."
     conda activate qwop
@@ -82,7 +82,7 @@ echo -e "${GREEN}Conda environment ready${NC}"
 echo ""
 
 # Step 3: Install Chrome/Chromium
-echo -e "${YELLOW}[3/6] Checking for Chrome-based browser...${NC}"
+echo -e "${YELLOW}[3/7] Checking for Chrome-based browser...${NC}"
 CHROME_PATH=""
 
 if [[ "$OS" == "Linux" ]]; then
@@ -97,9 +97,21 @@ if [[ "$OS" == "Linux" ]]; then
         echo "Chrome not found. Installing Chromium..."
         if command -v apt-get &> /dev/null; then
             # Debian/Ubuntu
-            sudo apt-get update
-            sudo apt-get install -y chromium-browser
-            CHROME_PATH=$(which chromium-browser)
+            echo "Installing Chromium and ChromeDriver together..."
+            sudo apt-get update -qq
+            
+            # Install both chromium-browser and chromium-chromedriver together
+            # This ensures version compatibility (critical for ARM64)
+            if [[ "$ARCH" == "aarch64" ]]; then
+                echo "Detected ARM64 architecture."
+                echo "Note: Using distro-provided Chromium (no official Google Chrome for linux-arm64)"
+                sudo apt-get install -y chromium-browser chromium-chromedriver
+                CHROME_PATH=$(which chromium-browser 2>/dev/null || which chromium)
+            else
+                # For x86_64, also use apt for consistency
+                sudo apt-get install -y chromium-browser chromium-chromedriver
+                CHROME_PATH=$(which chromium-browser 2>/dev/null || which chromium)
+            fi
         elif command -v yum &> /dev/null; then
             # RHEL/CentOS
             sudo yum install -y chromium
@@ -126,128 +138,130 @@ fi
 echo -e "${GREEN}Chrome found at: $CHROME_PATH${NC}"
 echo ""
 
-# Step 4: Download ChromeDriver
-echo -e "${YELLOW}[4/6] Checking for ChromeDriver...${NC}"
+# Step 4: Setup ChromeDriver
+echo -e "${YELLOW}[4/7] Setting up ChromeDriver...${NC}"
 
 CHROMEDRIVER_PATH="$(pwd)/chromedriver"
-CHROMEDRIVER_DOWNLOADED=false
+CHROMEDRIVER_FOUND=false
 
-# Check if ChromeDriver already exists
+# Check if ChromeDriver already exists in current directory
 if [[ -f "$CHROMEDRIVER_PATH" ]]; then
     echo -e "${GREEN}ChromeDriver already exists at: $CHROMEDRIVER_PATH${NC}"
+    CHROMEDRIVER_FOUND=true
 else
-    echo "ChromeDriver not found. Setting up..."
+    echo "ChromeDriver not found in current directory. Checking system..."
     
-    # Get Chrome version
+    # Get Chrome/Chromium version
     if [[ "$OS" == "Linux" ]]; then
-        CHROME_VERSION=$($CHROME_PATH --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+        CHROME_VERSION=$($CHROME_PATH --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
     elif [[ "$OS" == "Darwin" ]]; then
-        CHROME_VERSION=$("$CHROME_PATH" --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        CHROME_VERSION=$("$CHROME_PATH" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown")
     fi
     
-    CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d. -f1)
-    echo "Chrome version: $CHROME_VERSION (major: $CHROME_MAJOR_VERSION)"
+    if [[ "$CHROME_VERSION" != "unknown" ]]; then
+        echo "Chromium version: $CHROME_VERSION"
+    fi
     
-    # Determine platform for ChromeDriver
+    # For Linux (both x86_64 and ARM64), check for system chromedriver
     if [[ "$OS" == "Linux" ]]; then
-        if [[ "$ARCH" == "aarch64" ]]; then
-            # For aarch64, try google's platform first, but it likely doesn't exist
-            PLATFORM="linux64"
-        elif [[ "$ARCH" == "x86_64" ]]; then
-            PLATFORM="linux64"
+        if command -v chromedriver &> /dev/null; then
+            SYSTEM_DRIVER=$(which chromedriver)
+            DRIVER_VERSION=$(chromedriver --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
+            echo "Found system ChromeDriver: $SYSTEM_DRIVER"
+            echo "ChromeDriver version: $DRIVER_VERSION"
+            
+            # Copy to local directory for consistency
+            cp "$SYSTEM_DRIVER" ./chromedriver
+            chmod +x chromedriver
+            echo -e "${GREEN}ChromeDriver copied from system${NC}"
+            CHROMEDRIVER_FOUND=true
+            
+            # Verify version compatibility
+            if [[ "$CHROME_VERSION" != "unknown" ]] && [[ "$DRIVER_VERSION" != "unknown" ]]; then
+                CHROME_MAJOR=$(echo $CHROME_VERSION | cut -d. -f1)
+                DRIVER_MAJOR=$(echo $DRIVER_VERSION | cut -d. -f1)
+                
+                if [[ "$CHROME_MAJOR" != "$DRIVER_MAJOR" ]]; then
+                    echo -e "${YELLOW}WARNING: Version mismatch!${NC}"
+                    echo "  Chromium major version: $CHROME_MAJOR"
+                    echo "  ChromeDriver major version: $DRIVER_MAJOR"
+                    echo "  This may cause issues. Consider reinstalling both packages together."
+                else
+                    echo -e "${GREEN}Version check: Chromium and ChromeDriver major versions match${NC}"
+                fi
+            fi
         else
-            echo -e "${RED}Unsupported Linux architecture for ChromeDriver: $ARCH${NC}"
-            exit 1
-        fi
-    elif [[ "$OS" == "Darwin" ]]; then
-        if [[ "$ARCH" == "arm64" ]]; then
-            PLATFORM="mac-arm64"
-        else
-            PLATFORM="mac-x64"
+            echo -e "${YELLOW}ChromeDriver not found in system${NC}"
+            
+            # For ARM64, we must use system package (no official Google builds)
+            if [[ "$ARCH" == "aarch64" ]]; then
+                echo "ARM64 detected - ChromeDriver must be installed via apt"
+                echo "Installing chromium-chromedriver..."
+                sudo apt-get update -qq
+                sudo apt-get install -y chromium-chromedriver
+                
+                if command -v chromedriver &> /dev/null; then
+                    SYSTEM_DRIVER=$(which chromedriver)
+                    cp "$SYSTEM_DRIVER" ./chromedriver
+                    chmod +x chromedriver
+                    echo -e "${GREEN}ChromeDriver installed and copied${NC}"
+                    CHROMEDRIVER_FOUND=true
+                fi
+            fi
         fi
     fi
     
-    # Try to download ChromeDriver from Google's official source
-    echo "Attempting to download ChromeDriver from Google Chrome for Testing..."
-    CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/$PLATFORM/chromedriver-$PLATFORM.zip"
-    
-    if wget -q --spider "$CHROMEDRIVER_URL" 2>/dev/null; then
-        echo "Downloading: $CHROMEDRIVER_URL"
-        if wget -q --show-progress "$CHROMEDRIVER_URL" -O chromedriver.zip; then
-            if unzip -q -o chromedriver.zip; then
-                # Move chromedriver to project root
+    # For macOS, try downloading official ChromeDriver from Google
+    if [[ "$CHROMEDRIVER_FOUND" == false ]] && [[ "$OS" == "Darwin" ]]; then
+        if [[ "$CHROME_VERSION" != "unknown" ]]; then
+            if [[ "$ARCH" == "arm64" ]]; then
+                PLATFORM="mac-arm64"
+            else
+                PLATFORM="mac-x64"
+            fi
+            
+            echo "Downloading ChromeDriver for macOS..."
+            CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/$CHROME_VERSION/$PLATFORM/chromedriver-$PLATFORM.zip"
+            
+            if wget -q --spider "$CHROMEDRIVER_URL" 2>/dev/null; then
+                wget -q --show-progress "$CHROMEDRIVER_URL" -O chromedriver.zip
+                unzip -q -o chromedriver.zip
                 if [[ -d "chromedriver-$PLATFORM" ]]; then
                     mv "chromedriver-$PLATFORM/chromedriver" ./chromedriver
                     rm -rf "chromedriver-$PLATFORM"
                 fi
                 rm -f chromedriver.zip
                 chmod +x chromedriver
-                echo -e "${GREEN}ChromeDriver downloaded successfully${NC}"
-                CHROMEDRIVER_DOWNLOADED=true
+                echo -e "${GREEN}ChromeDriver downloaded${NC}"
+                CHROMEDRIVER_FOUND=true
             fi
         fi
+    fi
+    
+    # Final check
+    if [[ "$CHROMEDRIVER_FOUND" == false ]]; then
+        echo -e "${RED}ERROR: Could not setup ChromeDriver${NC}"
+        echo ""
+        if [[ "$ARCH" == "aarch64" ]]; then
+            echo "For ARM64 Ubuntu, both Chromium and ChromeDriver should be installed together:"
+            echo "  sudo apt-get install chromium-browser chromium-chromedriver"
+            echo ""
+            echo "This ensures version compatibility (critical on ARM64)."
+        else
+            echo "Please ensure chromium-chromedriver is installed:"
+            echo "  sudo apt-get install chromium-chromedriver"
+        fi
+        exit 1
+    fi
+fi
+
+# Verify chromedriver works
+if [[ -f "$CHROMEDRIVER_PATH" ]]; then
+    if ./chromedriver --version &>/dev/null; then
+        FINAL_VERSION=$(./chromedriver --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo "unknown")
+        echo -e "${GREEN}ChromeDriver is ready: $FINAL_VERSION${NC}"
     else
-        echo -e "${YELLOW}Exact version not found at Google source, trying alternative methods...${NC}"
-    fi
-    
-    # Fallback for aarch64: use ChromeDriver from Chromium snap if available
-    if [[ "$CHROMEDRIVER_DOWNLOADED" == false ]] && [[ "$OS" == "Linux" ]] && [[ "$ARCH" == "aarch64" ]]; then
-        echo "Attempting to use ChromeDriver from Chromium snap (for aarch64)..."
-        if [[ -f "/snap/chromium/current/usr/lib/chromium-browser/chromedriver" ]]; then
-            echo "Found ChromeDriver in snap, copying..."
-            cp /snap/chromium/current/usr/lib/chromium-browser/chromedriver ./chromedriver
-            chmod +x chromedriver
-            echo -e "${GREEN}ChromeDriver copied from snap successfully${NC}"
-            CHROMEDRIVER_DOWNLOADED=true
-        elif [[ -f "/usr/bin/chromedriver" ]]; then
-            echo "Found ChromeDriver in /usr/bin, copying..."
-            cp /usr/bin/chromedriver ./chromedriver
-            chmod +x chromedriver
-            echo -e "${GREEN}ChromeDriver copied from /usr/bin successfully${NC}"
-            CHROMEDRIVER_DOWNLOADED=true
-        fi
-    fi
-    
-    # Try full version with patch number if direct download failed
-    if [[ "$CHROMEDRIVER_DOWNLOADED" == false ]]; then
-        echo -e "${YELLOW}Trying to find full version string with patch number...${NC}"
-        LATEST_URL="https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
-        if wget -q "$LATEST_URL" -O versions.json 2>/dev/null; then
-            if command -v jq &> /dev/null; then
-                FULL_VERSION=$(jq -r ".versions[] | select(.version | startswith(\"$CHROME_MAJOR_VERSION.\")) | .version" versions.json | head -1)
-                if [[ ! -z "$FULL_VERSION" ]]; then
-                    echo "Found full version: $FULL_VERSION"
-                    CHROMEDRIVER_URL="https://storage.googleapis.com/chrome-for-testing-public/$FULL_VERSION/$PLATFORM/chromedriver-$PLATFORM.zip"
-                    echo "Trying: $CHROMEDRIVER_URL"
-                    
-                    if wget -q --spider "$CHROMEDRIVER_URL" 2>/dev/null; then
-                        wget -q --show-progress "$CHROMEDRIVER_URL" -O chromedriver.zip
-                        if unzip -q -o chromedriver.zip; then
-                            if [[ -d "chromedriver-$PLATFORM" ]]; then
-                                mv "chromedriver-$PLATFORM/chromedriver" ./chromedriver
-                                rm -rf "chromedriver-$PLATFORM"
-                            fi
-                            rm -f chromedriver.zip
-                            chmod +x chromedriver
-                            echo -e "${GREEN}ChromeDriver downloaded successfully${NC}"
-                            CHROMEDRIVER_DOWNLOADED=true
-                        fi
-                    fi
-                fi
-            fi
-            rm -f versions.json
-        fi
-    fi
-    
-    # Final result
-    if [[ "$CHROMEDRIVER_DOWNLOADED" == false ]]; then
-        if [[ ! -f "$CHROMEDRIVER_PATH" ]]; then
-            echo -e "${RED}ERROR: Could not obtain ChromeDriver${NC}"
-            echo "Please download manually from: https://googlechromelabs.github.io/chrome-for-testing/"
-            echo "Select ChromeDriver version $CHROME_VERSION for $PLATFORM"
-            echo "Extract and place in: $CHROMEDRIVER_PATH"
-            exit 1
-        fi
+        echo -e "${YELLOW}Warning: ChromeDriver exists but may not be executable${NC}"
     fi
 fi
 echo ""

@@ -1,190 +1,178 @@
 #!/bin/bash
-# Verification script to check if QWOP Gym is properly set up
+# Verification script to test QWOP training setup
+
+set -e
 
 echo "=========================================="
-echo "QWOP Gym Setup Verification"
+echo "QWOP Setup Verification"
 echo "=========================================="
 echo ""
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m'
 
 ERRORS=0
 WARNINGS=0
 
-# Color codes
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# Check functions
-check_pass() {
-    echo -e "${GREEN}✓${NC} $1"
-}
-
-check_fail() {
-    echo -e "${RED}✗${NC} $1"
-    ((ERRORS++))
-}
-
-check_warn() {
-    echo -e "${YELLOW}⚠${NC} $1"
-    ((WARNINGS++))
-}
-
-# 1. Check Conda
-echo "Checking Conda installation..."
+# Check 1: Conda installation
+echo -n "Checking Conda... "
 if command -v conda &> /dev/null; then
-    CONDA_VERSION=$(conda --version)
-    check_pass "Conda found: $CONDA_VERSION"
+    CONDA_VERSION=$(conda --version 2>&1)
+    echo -e "${GREEN}✓${NC} $CONDA_VERSION"
 else
-    check_fail "Conda not found"
+    echo -e "${RED}✗ Not found${NC}"
+    ERRORS=$((ERRORS + 1))
 fi
-echo ""
 
-# 2. Check Conda environment
-echo "Checking Conda environment 'qwop'..."
-if conda env list | grep -q "^qwop "; then
-    check_pass "Environment 'qwop' exists"
+# Check 2: Conda environment
+echo -n "Checking 'qwop' conda environment... "
+if conda env list 2>/dev/null | grep -q "^qwop "; then
+    echo -e "${GREEN}✓${NC} Exists"
     
-    # Check if activated
-    if [[ "$CONDA_DEFAULT_ENV" == "qwop" ]]; then
-        check_pass "Environment 'qwop' is activated"
-    else
-        check_warn "Environment 'qwop' is not activated. Run: conda activate qwop"
+    # Check Python version in environment
+    PYTHON_VERSION=$(conda run -n qwop python --version 2>&1)
+    echo "  Python version: $PYTHON_VERSION"
+    
+    if [[ ! "$PYTHON_VERSION" =~ "3.10" ]]; then
+        echo -e "  ${YELLOW}⚠${NC} Python 3.10 recommended, found: $PYTHON_VERSION"
+        WARNINGS=$((WARNINGS + 1))
     fi
 else
-    check_fail "Environment 'qwop' not found"
-fi
-echo ""
-
-# 3. Check Python version (if env is activated)
-if [[ "$CONDA_DEFAULT_ENV" == "qwop" ]]; then
-    echo "Checking Python version..."
-    PYTHON_VERSION=$(python --version 2>&1 | grep -oE '[0-9]+\.[0-9]+')
-    if [[ "$PYTHON_VERSION" == "3.10" ]]; then
-        check_pass "Python 3.10 found"
-    else
-        check_warn "Python version is $PYTHON_VERSION (expected 3.10)"
-    fi
-    echo ""
+    echo -e "${RED}✗ Not found${NC}"
+    echo "  Run: conda create -n qwop python=3.10 -y"
+    ERRORS=$((ERRORS + 1))
 fi
 
-# 4. Check qwop-gym package
-echo "Checking qwop-gym package..."
-if [[ "$CONDA_DEFAULT_ENV" == "qwop" ]]; then
-    if python -c "import qwop_gym" 2>/dev/null; then
-        QWOP_VERSION=$(python -c "import qwop_gym; print(qwop_gym.__version__)" 2>/dev/null || echo "unknown")
-        check_pass "qwop-gym package installed (version: $QWOP_VERSION)"
-    else
-        check_fail "qwop-gym package not found. Run: pip install qwop-gym"
-    fi
-else
-    check_warn "Activate 'qwop' environment to check package"
-fi
-echo ""
-
-# 5. Check Chrome/Chromium
-echo "Checking Chrome-based browser..."
-CHROME_FOUND=false
-if command -v google-chrome &> /dev/null; then
-    CHROME_PATH=$(which google-chrome)
-    CHROME_VERSION=$(google-chrome --version 2>/dev/null || echo "unknown")
-    check_pass "Google Chrome found: $CHROME_VERSION"
-    CHROME_FOUND=true
-elif command -v chromium-browser &> /dev/null; then
+# Check 3: Chromium
+echo -n "Checking Chromium browser... "
+if command -v chromium-browser &> /dev/null; then
     CHROME_PATH=$(which chromium-browser)
-    CHROME_VERSION=$(chromium-browser --version 2>/dev/null || echo "unknown")
-    check_pass "Chromium found: $CHROME_VERSION"
-    CHROME_FOUND=true
+    CHROME_VERSION=$(chromium-browser --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+    echo -e "${GREEN}✓${NC} Found at $CHROME_PATH"
+    echo "  Version: $CHROME_VERSION"
 elif command -v chromium &> /dev/null; then
     CHROME_PATH=$(which chromium)
-    CHROME_VERSION=$(chromium --version 2>/dev/null || echo "unknown")
-    check_pass "Chromium found: $CHROME_VERSION"
-    CHROME_FOUND=true
-elif [ -f "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
-    CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    CHROME_VERSION=$("$CHROME_PATH" --version 2>/dev/null || echo "unknown")
-    check_pass "Google Chrome found: $CHROME_VERSION"
-    CHROME_FOUND=true
-elif [ -f "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" ]; then
-    CHROME_PATH="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
-    check_pass "Brave Browser found"
-    CHROME_FOUND=true
+    CHROME_VERSION=$(chromium --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+    echo -e "${GREEN}✓${NC} Found at $CHROME_PATH"
+    echo "  Version: $CHROME_VERSION"
 else
-    check_fail "No Chrome-based browser found"
+    echo -e "${RED}✗ Not found${NC}"
+    echo "  Run: sudo apt-get install chromium-browser"
+    ERRORS=$((ERRORS + 1))
+    CHROME_VERSION="unknown"
 fi
-echo ""
 
-# 6. Check ChromeDriver
-echo "Checking ChromeDriver..."
-if [ -f "./chromedriver" ]; then
-    if [ -x "./chromedriver" ]; then
-        DRIVER_VERSION=$(./chromedriver --version 2>/dev/null | head -1 || echo "unknown")
-        check_pass "ChromeDriver found: $DRIVER_VERSION"
-    else
-        check_fail "ChromeDriver found but not executable. Run: chmod +x chromedriver"
-    fi
+# Check 4: ChromeDriver
+echo -n "Checking ChromeDriver... "
+CHROMEDRIVER_FOUND=false
+
+# Check local directory first
+if [[ -f "./chromedriver" ]]; then
+    DRIVER_VERSION=$(./chromedriver --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+    echo -e "${GREEN}✓${NC} Found in current directory"
+    echo "  Version: $DRIVER_VERSION"
+    CHROMEDRIVER_FOUND=true
+elif command -v chromedriver &> /dev/null; then
+    DRIVER_PATH=$(which chromedriver)
+    DRIVER_VERSION=$(chromedriver --version 2>&1 | grep -oP '\d+\.\d+\.\d+' | head -1)
+    echo -e "${GREEN}✓${NC} Found at $DRIVER_PATH"
+    echo "  Version: $DRIVER_VERSION"
+    CHROMEDRIVER_FOUND=true
 else
-    check_fail "ChromeDriver not found in current directory"
+    echo -e "${RED}✗ Not found${NC}"
+    echo "  Run: sudo apt-get install chromium-chromedriver"
+    ERRORS=$((ERRORS + 1))
+    DRIVER_VERSION="unknown"
 fi
-echo ""
 
-# 7. Check Xvfb (for headless systems)
-echo "Checking Xvfb (for headless training)..."
-if command -v Xvfb &> /dev/null; then
-    check_pass "Xvfb found (required for headless training)"
-else
-    check_warn "Xvfb not found. Install with: sudo apt-get install xvfb"
-fi
-echo ""
-
-# 8. Check config file
-echo "Checking configuration..."
-if [ -f "config/env.yml" ]; then
-    check_pass "Configuration file found: config/env.yml"
+# Check version compatibility
+if [[ "$CHROMEDRIVER_FOUND" == true ]] && [[ "$CHROME_VERSION" != "unknown" ]] && [[ "$DRIVER_VERSION" != "unknown" ]]; then
+    CHROME_MAJOR=$(echo $CHROME_VERSION | cut -d. -f1)
+    DRIVER_MAJOR=$(echo $DRIVER_VERSION | cut -d. -f1)
     
-    # Check if paths are set
-    if grep -q "browser:" config/env.yml && grep -q "driver:" config/env.yml; then
-        check_pass "Browser and driver paths configured"
+    echo -n "Checking version compatibility... "
+    if [[ "$CHROME_MAJOR" == "$DRIVER_MAJOR" ]]; then
+        echo -e "${GREEN}✓${NC} Major versions match ($CHROME_MAJOR)"
     else
-        check_warn "Configuration may be incomplete"
+        echo -e "${RED}✗${NC} Version mismatch!"
+        echo "  Chromium major: $CHROME_MAJOR"
+        echo "  ChromeDriver major: $DRIVER_MAJOR"
+        echo "  Fix: sudo apt-get install --reinstall chromium-browser chromium-chromedriver"
+        ERRORS=$((ERRORS + 1))
     fi
-else
-    check_warn "Configuration file not found: config/env.yml"
-    echo "         Run setup_lambda.sh or qwop-gym bootstrap to create it"
 fi
-echo ""
 
-# 9. Check QWOP patch
-echo "Checking QWOP patch..."
-if [[ "$CONDA_DEFAULT_ENV" == "qwop" ]]; then
-    QWOP_FILE=$(python -c "import qwop_gym; import os; print(os.path.join(os.path.dirname(qwop_gym.__file__), 'envs/v1/game/QWOP.min.js'))" 2>/dev/null)
-    if [ -f "$QWOP_FILE" ]; then
-        check_pass "QWOP.min.js found and patched"
-    else
-        check_fail "QWOP.min.js not found. Run: curl -sL https://www.foddy.net/QWOP.min.js | qwop-gym patch"
-    fi
+# Check 5: Xvfb
+echo -n "Checking Xvfb (virtual display)... "
+if command -v Xvfb &> /dev/null; then
+    echo -e "${GREEN}✓${NC} Installed"
 else
-    check_warn "Activate 'qwop' environment to check QWOP patch"
+    echo -e "${YELLOW}⚠${NC} Not found (needed for headless training)"
+    echo "  Run: sudo apt-get install xvfb"
+    WARNINGS=$((WARNINGS + 1))
 fi
+
+# Check 6: qwop-gym package
+echo -n "Checking qwop-gym package... "
+if conda run -n qwop python -c "import qwop_gym" 2>/dev/null; then
+    QWOP_VERSION=$(conda run -n qwop python -c "import qwop_gym; print(qwop_gym.__version__)" 2>/dev/null || echo "unknown")
+    echo -e "${GREEN}✓${NC} Installed (version: $QWOP_VERSION)"
+else
+    echo -e "${RED}✗ Not installed${NC}"
+    echo "  Run: conda activate qwop && pip install qwop-gym"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check 7: QWOP patched files
+echo -n "Checking QWOP patched files... "
+QWOP_DIR="$HOME/.qwop-gym"
+if [[ -d "$QWOP_DIR" ]] && [[ -f "$QWOP_DIR/QWOP.min.js" ]]; then
+    echo -e "${GREEN}✓${NC} Found at $QWOP_DIR"
+else
+    echo -e "${YELLOW}⚠${NC} Not found"
+    echo "  Run: curl -sL https://www.foddy.net/QWOP.min.js | qwop-gym patch"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Check 8: Config files
+echo -n "Checking config files... "
+if [[ -f "config/env.yml" ]]; then
+    echo -e "${GREEN}✓${NC} config/env.yml exists"
+else
+    echo -e "${YELLOW}⚠${NC} config/env.yml not found"
+    echo "  Will be created by setup script"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Check 9: Architecture info
 echo ""
+echo "System Information:"
+echo "  OS: $(uname -s)"
+echo "  Architecture: $(uname -m)"
+if [[ "$(uname -m)" == "aarch64" ]]; then
+    echo -e "  ${GREEN}✓${NC} ARM64 detected - using distro Chromium/ChromeDriver"
+fi
 
 # Summary
+echo ""
 echo "=========================================="
-echo "Verification Summary"
-echo "=========================================="
-if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}All checks passed! Setup is complete.${NC}"
+if [[ $ERRORS -eq 0 ]] && [[ $WARNINGS -eq 0 ]]; then
+    echo -e "${GREEN}All checks passed!${NC}"
     echo ""
-    echo "You can now run:"
-    echo "  qwop-gym play          # Play the game"
-    echo "  qwop-gym train_ppo     # Start training"
-    echo "  ./lambda_train.sh      # Train with virtual display (Lambda)"
-elif [ $ERRORS -eq 0 ]; then
-    echo -e "${YELLOW}Setup is mostly complete with $WARNINGS warning(s).${NC}"
-    echo "Review the warnings above and fix if needed."
+    echo "You're ready to train:"
+    echo "  conda activate qwop"
+    echo "  ./lambda_train.sh train_ppo"
+elif [[ $ERRORS -eq 0 ]]; then
+    echo -e "${YELLOW}Setup complete with $WARNINGS warning(s)${NC}"
+    echo ""
+    echo "You can proceed, but consider fixing warnings above."
 else
-    echo -e "${RED}Setup incomplete: $ERRORS error(s), $WARNINGS warning(s).${NC}"
-    echo "Please fix the errors above before proceeding."
+    echo -e "${RED}Setup incomplete: $ERRORS error(s), $WARNINGS warning(s)${NC}"
+    echo ""
+    echo "Please fix the errors above before training."
     exit 1
 fi
-echo ""
+echo "=========================================="
