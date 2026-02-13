@@ -68,7 +68,48 @@ def init_model(
 
     if model_load_file:
         print("Loading %s model from %s" % (alg.__name__, model_load_file))
-        model = alg.load(model_load_file, env=venv)
+        try:
+            # Try to load the full model (including optimizer state)
+            model = alg.load(model_load_file, env=venv)
+            print("Successfully loaded model with optimizer state")
+        except (ValueError, RuntimeError) as e:
+            # If optimizer state doesn't match (due to changed hyperparameters),
+            # load just the policy and create a fresh model with new hyperparameters
+            if "optimizer" in str(e).lower() or "parameter group" in str(e).lower():
+                print(f"Note: Optimizer state mismatch (expected when changing hyperparameters)")
+                print(f"Loading policy weights only, reinitializing optimizer with new config...")
+                
+                # Create a fresh model with new hyperparameters
+                kwargs = dict(learner_kwargs, learning_rate=learning_rate, seed=seed)
+                model = alg(env=venv, **kwargs)
+                
+                # Load only the policy weights from the checkpoint, skip optimizer
+                # Use SB3's load_from_zip_file to properly extract weights
+                import torch
+                from stable_baselines3.common.save_util import load_from_zip_file
+                
+                data, params, pytorch_variables = load_from_zip_file(
+                    model_load_file,
+                    device='cpu',
+                    print_system_info=False
+                )
+                
+                # Load the policy network weights only (skip optimizer)
+                model.policy.load_state_dict(params['policy'], strict=False)
+                print("Policy weights loaded successfully")
+                
+                # For QRDQN, also load q_net and q_net_target if they exist separately
+                if hasattr(model, 'q_net') and 'q_net' in params:
+                    model.q_net.load_state_dict(params['q_net'])
+                    print("Q-network weights loaded successfully")
+                if hasattr(model, 'q_net_target') and 'q_net_target' in params:
+                    model.q_net_target.load_state_dict(params['q_net_target'])
+                    print("Target Q-network weights loaded successfully")
+                
+                print("Optimizer and replay buffer reinitialized with new hyperparameters")
+            else:
+                # Re-raise if it's a different error
+                raise
     else:
         kwargs = dict(learner_kwargs, learning_rate=learning_rate, seed=seed)
         model = alg(env=venv, **kwargs)

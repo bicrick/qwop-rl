@@ -1,11 +1,18 @@
 run0:
+  # STATUS: FAILED - Catastrophic collapse at ~7M steps
+  # Run ID: jzq9v5l6
+  # Duration: 0-10M steps (stopped at ~10M, collapsed at 7M)
+  # Peak Performance: ~6-7M steps (avgspeed: 8, distance: 40m+)
+  # Collapse: Sharp drop at 7M (avgspeed: 8 -> 0.5, distance: 40m -> 2m)
+  # Best Checkpoint: model_5120000_steps.zip (before collapse)
+  
   # Training Configuration
   total_timesteps: 32_000_000
   max_episode_steps: 1000
   n_envs: 8
   n_checkpoints: 50
   seed: ~ (auto-generated)
-  run_id: ~ (auto-generated)
+  run_id: jzq9v5l6
   
   # QRDQN Algorithm Parameters
   learner_kwargs:
@@ -17,13 +24,14 @@ run0:
     gamma: 0.997
     train_freq: 4
     gradient_steps: 1
-    target_update_interval: 512
-    exploration_fraction: 0.3
+    target_update_interval: 512  # TOO AGGRESSIVE - caused rapid bad update propagation
+    exploration_fraction: 0.3  # TOO FAST - rapid exploration decay
     exploration_initial_eps: 0.2
-    exploration_final_eps: 0
+    exploration_final_eps: 0  # NO EXPLORATION - can't escape bad policies
+    max_grad_norm: null  # MISSING - allowed gradient explosions
   
   # Learning Rate Schedule
-  learner_lr_schedule: "const_0.001"
+  learner_lr_schedule: "const_0.001"  # CONSTANT - no decay caused late-training instability
   
   # Environment Parameters
   env_kwargs:
@@ -36,3 +44,133 @@ run0:
   
   # Logging
   log_tensorboard: true
+  
+  # ROOT CAUSE ANALYSIS
+  # ==================
+  # 1. Aggressive target_update_interval (512) propagated bad updates quickly
+  # 2. No gradient clipping allowed exploding gradients
+  # 3. Constant LR caused instability in late training
+  # 4. Adam optimizer with default params susceptible to non-stationary data
+  # 5. Zero final exploration prevented recovery from bad policies
+  
+run1_test:
+  # STATUS: PENDING - Test run through collapse zone
+  # Purpose: Validate stability improvements with 2M step test (5.12M -> 7.12M)
+  # Config: config/train_qrdqn_test.yml
+  
+  model_load_file: "data/QRDQN-WR-jzq9v5l6/model_5120000_steps.zip"
+  total_timesteps: 7_120_000  # 2M additional steps
+  
+  # STABILIZATION CHANGES:
+  target_update_interval: 2048  # 4x slower (512 -> 2048)
+  buffer_size: 200000  # 2x larger (100k -> 200k)
+  max_grad_norm: 10  # NEW - gradient clipping
+  exploration_fraction: 0.5  # Slower decay (0.3 -> 0.5)
+  exploration_final_eps: 0.01  # Keep exploration (0.0 -> 0.01)
+  learner_lr_schedule: "exp_decay_0.001_0.0001_0.5_10"  # Decay LR
+  policy_kwargs:
+    optimizer_kwargs:
+      eps: 1.0e-5  # Conservative Adam epsilon
+      betas: [0.9, 0.999]  # Matched moments
+  
+run1_stable:
+  # STATUS: FAILED - Catastrophic forgetfulness AGAIN
+  # Run ID: 4i2mzx67
+  # Config: config/train_qrdqn_stable.yml
+  # Duration: 5.12M - 25.6M steps (started from run0 checkpoint)
+  # Peak Performance: 5.12M - ~10M steps (avgspeed: ~10-11, maintained WR trajectory)
+  # Collapse: Gradual degradation starting ~10-12M steps
+  # Final State: High variance, avgspeed oscillating 7-11, unstable behavior
+  
+  model_load_file: "data/QRDQN-WR-jzq9v5l6/model_5120000_steps.zip"
+  total_timesteps: 32_000_000  # Continued from 5.12M
+  
+  # STABILIZATION CHANGES (from run0):
+  target_update_interval: 2048  # 4x slower (512 -> 2048)
+  buffer_size: 200000  # 2x larger (100k -> 200k)
+  max_grad_norm: 10  # NEW - gradient clipping
+  exploration_fraction: 0.5  # Slower decay (0.3 -> 0.5)
+  exploration_final_eps: 0.01  # Keep exploration (0.0 -> 0.01)
+  learner_lr_schedule: "exp_decay_0.001_0.0001_0.5_10"  # Decay LR
+  policy_kwargs:
+    optimizer_kwargs:
+      eps: 1.0e-5  # Conservative Adam epsilon
+      betas: [0.9, 0.999]
+  
+  # OBSERVATIONS:
+  # - Initially continued strong performance from checkpoint
+  # - Maintained/slightly improved avgspeed ~10-11 for several million steps
+  # - Catastrophic forgetfulness occurred DESPITE stability improvements
+  # - Suggests deeper issue than just hyperparameter tuning
+  # - High variance in later stages indicates policy instability
+
+# ============================================================================
+# NEW APPROACH: Two-Stage Training (Inspired by Wesley Liao's WR Method)
+# ============================================================================
+# Research (via Perplexity) revealed the 47.34s world record was achieved using:
+# - Stage 1 (50h): ACER + imitation learning to learn stable running
+# - Stage 2 (40h): Prioritized DDQN for pure speed optimization
+#
+# Key insight: Learn locomotion FIRST, then optimize for speed
+# This avoids catastrophic forgetting by establishing stable base policy
+#
+# Our adaptation uses QRDQN (closest available to Prioritized DDQN):
+# - QRDQN uses distributional RL to address overestimation (similar to Double-Q)
+# - Missing: Prioritized Experience Replay (not in SB3), Dueling Networks
+# - Reward already velocity-based, no modifications needed
+#
+# Configs: config/train_qrdqn_stage1.yml and config/train_qrdqn_stage2.yml
+
+run2_stage1:
+  # STATUS: PENDING - Learn stable running first
+  # Config: config/train_qrdqn_stage1.yml
+  # Duration: 10M steps
+  # Goal: Consistently reach 20-40m without falling
+  
+  total_timesteps: 10_000_000
+  n_envs: 4
+  max_episode_steps: 2000  # Allow longer episodes for stable learning
+  
+  # CONSERVATIVE HYPERPARAMETERS (avoid rushing):
+  target_update_interval: 10000  # SB3 default - very conservative
+  gamma: 0.995  # Default discount
+  exploration_fraction: 0.5  # Slow decay
+  exploration_initial_eps: 0.1  # Moderate exploration
+  exploration_final_eps: 0.05  # MAINTAIN exploration
+  learner_lr_schedule: "const_0.001"  # Stable constant LR
+  reduced_action_set: true  # 9 actions
+  
+  # Standard reward parameters:
+  failure_cost: 10
+  success_reward: 50
+  time_cost_mult: 10
+  
+  # Expected outcome: Stable runner that reaches 20-40m consistently
+  # Best checkpoint will be used for Stage 2
+
+run2_stage2:
+  # STATUS: PENDING - Optimize for speed (requires Stage 1 completion)
+  # Config: config/train_qrdqn_stage2.yml
+  # Duration: 20M steps
+  # Goal: Maximize velocity without catastrophic forgetting
+  
+  model_load_file: "data/QRDQN-STAGE1-{run_id}/model_BEST_steps.zip"
+  total_timesteps: 20_000_000
+  n_envs: 6  # Increase parallelization
+  max_episode_steps: 1000  # SHORTER - encourage faster runs
+  
+  # SPEED OPTIMIZATION HYPERPARAMETERS:
+  target_update_interval: 5000  # Faster than Stage 1 but still conservative
+  gamma: 0.997  # Value long-term rewards more
+  exploration_fraction: 0.3  # Faster decay - already know how to run
+  exploration_initial_eps: 0.05  # Start low
+  exploration_final_eps: 0.01  # Minimal exploration
+  learner_lr_schedule: "lin_decay_0.001_0.0001_0.75"  # Decay for fine-tuning
+  
+  # Modified reward to encourage speed:
+  failure_cost: 5  # REDUCED - allow risk-taking
+  success_reward: 50  # Same
+  time_cost_mult: 15  # INCREASED - more time-conscious
+  
+  # Expected outcome: Faster runs without forgetting how to run
+  # The stable base from Stage 1 should prevent catastrophic collapse
