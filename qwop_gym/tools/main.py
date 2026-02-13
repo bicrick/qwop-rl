@@ -133,7 +133,7 @@ def run(action, cfg, tag=None):
                 values=dict(run_values, env=expanded_env_kwargs),
             )
             print("saved run metadata.")
-        case "train_a2c" | "train_ppo" | "train_dqn" | "train_qrdqn" | "train_rppo":
+        case "train_a2c" | "train_ppo" | "train_dqn" | "train_qrdqn" | "train_eqrdqn" | "train_sac" | "train_dsac" | "train_rppo":
             ensure_sb3_installed()
             from .train_sb3 import train_sb3
 
@@ -275,6 +275,9 @@ action:
   train_ppo         train using Proximal Policy Optimization (PPO)
   train_dqn         train using Deep Q Network (DQN)
   train_qrdqn       train using Quantile Regression DQN (QRDQN)
+  train_eqrdqn      train using Enhanced QRDQN with Prioritized Experience Replay
+  train_sac         train using Soft Actor-Critic (SAC)
+  train_dsac        train using Discrete Soft Actor-Critic (DSAC)
   train_rppo        train using Recurrent Proximal Policy Optimization (RPPO)
   train_a2c         train using Advantage Actor Critic (A2C)
   spectate          watch a trained model play QWOP, optionally recording actions

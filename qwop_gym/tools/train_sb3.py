@@ -51,6 +51,8 @@ def init_model(
     out_dir,
 ):
     alg = None
+    # Make a copy to avoid modifying the original (for metadata saving)
+    model_kwargs = dict(learner_kwargs)
 
     match learner_cls:
         case "A2C":
@@ -61,6 +63,50 @@ def init_model(
             alg = stable_baselines3.DQN
         case "QRDQN":
             alg = sb3_contrib.QRDQN
+        case "EQRDQN":
+            from qwop_gym.algorithms.enhanced_qrdqn import EnhancedQRDQN
+            from qwop_gym.buffers.prioritized_replay import PrioritizedReplayBuffer
+            alg = EnhancedQRDQN
+            
+            # Extract PER parameters from model_kwargs (don't modify original learner_kwargs)
+            # These will be passed to PrioritizedReplayBuffer
+            per_alpha = model_kwargs.pop("per_alpha", 0.6)
+            per_beta_start = model_kwargs.pop("per_beta_start", 0.4)
+            per_beta_frames = model_kwargs.pop("per_beta_frames", 100000)
+            per_eps = model_kwargs.pop("per_eps", 1e-6)
+            
+            # Set replay buffer class and kwargs
+            model_kwargs["replay_buffer_class"] = PrioritizedReplayBuffer
+            model_kwargs["replay_buffer_kwargs"] = {
+                "alpha": per_alpha,
+                "beta_start": per_beta_start,
+                "beta_frames": per_beta_frames,
+                "eps": per_eps,
+            }
+        case "SAC":
+            alg = stable_baselines3.SAC
+        case "DSAC":
+            from qwop_gym.algorithms.discrete_sac import DiscreteSAC
+            from qwop_gym.buffers.prioritized_replay import PrioritizedReplayBuffer
+            alg = DiscreteSAC
+            
+            # Extract PER and SAC parameters from model_kwargs
+            use_per = model_kwargs.pop("use_per", False)
+            
+            if use_per:
+                per_alpha = model_kwargs.pop("per_alpha", 0.6)
+                per_beta_start = model_kwargs.pop("per_beta_start", 0.4)
+                per_beta_frames = model_kwargs.pop("per_beta_frames", 100000)
+                per_eps = model_kwargs.pop("per_eps", 1e-6)
+                
+                # Set replay buffer class and kwargs
+                model_kwargs["replay_buffer_class"] = PrioritizedReplayBuffer
+                model_kwargs["replay_buffer_kwargs"] = {
+                    "alpha": per_alpha,
+                    "beta_start": per_beta_start,
+                    "beta_frames": per_beta_frames,
+                    "eps": per_eps,
+                }
         case "RPPO":
             alg = sb3_contrib.RecurrentPPO
         case _:
@@ -80,7 +126,7 @@ def init_model(
                 print(f"Loading policy weights only, reinitializing optimizer with new config...")
                 
                 # Create a fresh model with new hyperparameters
-                kwargs = dict(learner_kwargs, learning_rate=learning_rate, seed=seed)
+                kwargs = dict(model_kwargs, learning_rate=learning_rate, seed=seed)
                 model = alg(env=venv, **kwargs)
                 
                 # Load only the policy weights from the checkpoint, skip optimizer
@@ -111,7 +157,7 @@ def init_model(
                 # Re-raise if it's a different error
                 raise
     else:
-        kwargs = dict(learner_kwargs, learning_rate=learning_rate, seed=seed)
+        kwargs = dict(model_kwargs, learning_rate=learning_rate, seed=seed)
         model = alg(env=venv, **kwargs)
 
     if log_tensorboard:

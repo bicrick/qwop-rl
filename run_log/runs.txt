@@ -174,3 +174,116 @@ run2_stage2:
   
   # Expected outcome: Faster runs without forgetting how to run
   # The stable base from Stage 1 should prevent catastrophic collapse
+
+# ============================================================================
+# ALGORITHM TRANSITION: QRDQN -> PPO (Proximal Policy Optimization)
+# ============================================================================
+# 
+# CRITICAL DISCOVERY: QWOP Uses DISCRETE Actions, Not Continuous!
+# =================================================================
+# 
+# With reduced_action_set=true, QWOP action space is Discrete(9), not continuous.
+# This changes the entire analysis:
+#
+# QWOP ACTION SPACE:
+# - reduced_action_set=true: Discrete(9) - nine key combinations
+# - Action set: (none), Q, W, O, P, QW, QP, WO, OP
+# - NOT continuous muscle activations as initially assumed
+#
+# This means:
+# 1. QRDQN IS appropriate for discrete actions (DQN family designed for this)
+# 2. SAC/TD3 WON'T work (they require continuous Box action spaces)
+# 3. The "continuous control" research doesn't directly apply
+#
+# WHY QRDQN STILL FAILS (Despite Being Appropriate for Discrete Actions)
+# =======================================================================
+#
+# The catastrophic forgetting likely stems from:
+#
+# 1. THE DEADLY TRIAD (Still Applies to Discrete Actions)
+#    - Function approximation (neural networks)
+#    - Bootstrapping (using Q-values to train Q-values)
+#    - Off-policy learning (replay buffer)
+#    These create instability even in discrete action spaces
+#
+# 2. OVERESTIMATION BIAS
+#    - max_a Q(s,a) systematically overestimates in discrete spaces too
+#    - Agent exploits value function errors rather than learning real skills
+#    - Explains the pattern: initial learning -> exploitation -> collapse
+#
+# 3. EXPLORATION-EXPLOITATION IN LOCOMOTION
+#    - Epsilon-greedy exploration is too crude for coordinated movement
+#    - Random action selection disrupts learned movement patterns
+#    - Hard to maintain balance while exploring
+#
+# EVIDENCE FROM OUR RUNS:
+# run0: Strong learning to 6M steps, catastrophic collapse at 7M
+# run1_stable: Conservative hyperparameters delayed but didn't prevent collapse
+# run2_stage1: Two-stage training showed continued oscillation
+#
+# Pattern: Initial success -> peak performance -> sudden degradation
+# This suggests overestimation bias accumulation over training
+#
+# WHY PPO IS THE SOLUTION
+# ========================
+#
+# Proximal Policy Optimization (PPO) is an on-policy algorithm that avoids
+# Q-learning's failure modes while working with discrete actions:
+#
+# 1. WORKS WITH DISCRETE ACTIONS
+#    - Policy directly outputs action probabilities
+#    - No value maximization required
+#    - Natural fit for QWOP's Discrete(9) action space
+#
+# 2. AVOIDS THE DEADLY TRIAD
+#    - On-policy learning (no stale replay buffer data)
+#    - Actor-critic architecture (policy separate from value)
+#    - Trust region constraints prevent catastrophic updates
+#
+# 3. STABLE LONG-TERM LEARNING
+#    - PPO's clipped objective prevents destructive policy changes
+#    - Naturally conservative updates maintain learned skills
+#    - Research shows stable performance over extended training
+#
+# 4. PROVEN SUCCESS ON QWOP
+#    - Research found someone achieved 50m using PPO
+#    - Demonstrated PPO can learn QWOP locomotion
+#    - Suggests PPO may reach 100m with proper training
+#
+# 5. BETTER EXPLORATION FOR LOCOMOTION
+#    - Stochastic policy provides natural exploration
+#    - Entropy regularization maintains diverse action sampling
+#    - Gradual exploration decay as skills develop
+#
+# PPO ADVANTAGES OVER QRDQN:
+# - On-policy: always learning from current policy (no distribution shift)
+# - Trust regions: limits policy changes, prevents catastrophic forgetting
+# - Entropy bonus: maintains exploration throughout training
+# - Simpler: fewer hyperparameters to tune than QRDQN
+# - More stable: research shows fewer sudden performance drops
+#
+# POTENTIAL DRAWBACKS:
+# - Lower sample efficiency: doesn't reuse old data like QRDQN
+# - Slower initial learning: more conservative updates
+# - Requires more environment steps for same progress
+# - But: trades sample efficiency for stability (what we need!)
+#
+# IMPLEMENTATION:
+# - PPO available in stable-baselines3 (already installed)
+# - Config: config/train_ppo_wr.yml
+# - Key params: clip_range=0.2, ent_coef=0.01, n_steps=2048, batch_size=64
+# - Larger networks (256x256) for complex control
+# - Learning rate decay over 75% of training
+#
+# NEW TRAINING APPROACH:
+# run3_ppo:
+#   Config: config/train_ppo_wr.yml
+#   Algorithm: Proximal Policy Optimization (PPO)
+#   Duration: 32M timesteps
+#   Expected: Stable monotonic improvement without catastrophic forgetting
+#   Command: python3.10 qwop-gym.py train_ppo -c config/train_ppo_wr.yml
+#
+# NOTE ON SAC:
+# SAC was initially considered but requires continuous (Box) action spaces.
+# QWOP uses Discrete actions, so SAC cannot be used without modifying
+# the environment to use continuous muscle activations (risky change).

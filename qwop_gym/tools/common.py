@@ -246,11 +246,14 @@ def exp_decay_fn(initial_value, final_value, decay_fraction, n_decays):
 def lin_decay_fn(initial_value, final_value, decay_fraction):
     assert initial_value > final_value
     assert final_value > 0
-    assert decay_fraction >= 0 and decay_fraction <= 1
-    const_fraction = 1 - decay_fraction
+    assert 0 <= decay_fraction <= 1
 
     def func(progress_remaining: float) -> float:
-        return max(0, 1 + (initial_value * progress_remaining - 1) / decay_fraction)
+        # progress_remaining: 1.0 at start, 0.0 at end
+        progress = 1.0 - progress_remaining
+        if progress < decay_fraction:
+            return initial_value + (final_value - initial_value) * (progress / decay_fraction)
+        return final_value
 
     return func
 

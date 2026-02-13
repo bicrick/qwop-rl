@@ -26,8 +26,8 @@ class SumTree:
         
         :param size: Maximum number of leaf nodes (buffer capacity)
         """
-        self.nodes = np.zeros(2 * size - 1)  # Total nodes in complete binary tree
-        self.data = np.zeros(size, dtype=int)  # Stores data indices
+        self.nodes = np.zeros(2 * size - 1, dtype=np.float64)  # Total nodes in complete binary tree
+        self.data = np.zeros(size, dtype=np.int32)  # Stores data indices
         self.size = size  # Maximum capacity
         self.count = 0  # Current position for new data
         self.real_size = 0  # Actual number of elements stored
@@ -45,6 +45,7 @@ class SumTree:
         :param value: New priority value
         """
         idx = data_idx + self.size - 1  # Convert to tree index
+        value = float(value)  # Ensure value is float
         change = value - self.nodes[idx]
         self.nodes[idx] = value
 
@@ -63,8 +64,8 @@ class SumTree:
         :param value: Priority value
         :param data: Data index to store
         """
-        self.data[self.count] = data
-        self.update(self.count, value)
+        self.data[self.count] = int(data)
+        self.update(self.count, float(value))
         self.count = (self.count + 1) % self.size
         self.real_size = min(self.size, self.real_size + 1)
 
@@ -137,11 +138,11 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         )
 
         # Prioritized replay parameters
-        self.alpha = alpha
-        self.beta_start = beta_start
-        self.beta_frames = beta_frames
-        self.eps = eps
-        self.max_priority = eps
+        self.alpha = float(alpha)
+        self.beta_start = float(beta_start)
+        self.beta_frames = int(beta_frames)
+        self.eps = float(eps)
+        self.max_priority = float(eps)
         self.frame_count = 0
 
         # Initialize sum tree for prioritized sampling
