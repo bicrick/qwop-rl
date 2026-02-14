@@ -97,6 +97,7 @@ class QwopEnv(gym.Env):
     failure_cost: Subtracted from the reward at the end of unsuccessful
         episodes.
     success_reward: Added to the reward at the end of successful episodes.
+    speed_rew_mult: Multiplier for the velocity reward component at each step.
     time_cost_mult: Multiplier for the amount subtracted from the reward
         at each step.
     frames_per_step: Number of frames to advance per call to `.step`
@@ -127,6 +128,7 @@ class QwopEnv(gym.Env):
         render_mode="browser",
         failure_cost=10,
         success_reward=50,
+        speed_rew_mult=0.01,
         time_cost_mult=10,
         frames_per_step=1,
         stat_in_browser=False,
@@ -194,7 +196,7 @@ class QwopEnv(gym.Env):
             shape=(60,), low=-1, high=1, dtype=DTYPE
         )
 
-        self.speed_rew_mult = DTYPE(0.01)
+        self.speed_rew_mult = DTYPE(speed_rew_mult)
         self.time_cost_mult = DTYPE(time_cost_mult)
         self.failure_cost = DTYPE(failure_cost)
         self.success_reward = DTYPE(success_reward)
