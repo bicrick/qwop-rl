@@ -61,6 +61,19 @@ def run(action, cfg, tag=None):
                 model_mod=cfg.get("model_mod", "stable_baselines3"),
                 model_cls=cfg.get("model_cls", "PPO"),
             )
+        case "collect_demos":
+            ensure_sb3_installed()
+            from .collect_demonstrations import collect_demonstrations
+
+            collect_demonstrations(
+                model_file=cfg["model_file"],
+                model_mod=cfg.get("model_mod", "sb3_contrib"),
+                model_cls=cfg.get("model_cls", "QRDQN"),
+                n_episodes=cfg.get("n_episodes", 50),
+                out_file=cfg["out_file"],
+                seed_start=cfg.get("seed_start", 10000),
+                steps_per_step=cfg.get("steps_per_step", 1),
+            )
         case "evaluate":
             ensure_sb3_installed()
             from .evaluate import evaluate
@@ -170,6 +183,9 @@ def run(action, cfg, tag=None):
                     "learner_lr_schedule": cfg.get(
                         "learner_lr_schedule", "const_0.003"
                     ),
+                    # DQNfD parameters (optional)
+                    "demo_file": cfg.get("demo_file", None),
+                    "demo_injection_ratio": cfg.get("demo_injection_ratio", 0.5),
                 }
             )
 
@@ -283,6 +299,7 @@ def main():
 action:
   play              play QWOP, optionally recording actions
   replay            replay recorded game actions
+  collect_demos     collect expert demonstrations from a trained model
   train_bc          train using Behavioral Cloning (BC)
   train_gail        train using Generative Adversarial Imitation Learning (GAIL)
   train_airl        train using Adversarial Inverse Reinforcement Learning (AIRL)

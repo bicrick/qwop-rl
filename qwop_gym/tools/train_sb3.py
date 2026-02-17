@@ -209,6 +209,8 @@ def train_sb3(
     out_dir_template,
     log_tensorboard,
     n_envs=1,
+    demo_file=None,
+    demo_injection_ratio=0.5,
 ):
     venv = create_vec_env(seed, max_episode_steps, n_envs)
 
@@ -227,18 +229,33 @@ def train_sb3(
             out_dir=out_dir,
         )
 
+        # Build callback list
+        callbacks = [
+            LogCallback(),
+            CheckpointCallback(
+                save_freq=math.ceil(total_timesteps / n_checkpoints),
+                save_path=out_dir,
+                name_prefix="model",
+            ),
+        ]
+
+        # Add DQNfD callback if demo_file is provided
+        if demo_file is not None:
+            from qwop_gym.callbacks import DQNfDCallback
+            callbacks.append(
+                DQNfDCallback(
+                    demo_file=demo_file,
+                    injection_ratio=demo_injection_ratio,
+                    verbose=1,
+                )
+            )
+            print(f"DQNfD enabled: injecting demos from {demo_file} at ratio {demo_injection_ratio}")
+
         model.learn(
             total_timesteps=total_timesteps,
             reset_num_timesteps=False,
             progress_bar=True,
-            callback=[
-                LogCallback(),
-                CheckpointCallback(
-                    save_freq=math.ceil(total_timesteps / n_checkpoints),
-                    save_path=out_dir,
-                    name_prefix="model",
-                ),
-            ],
+            callback=callbacks,
         )
 
         # The CheckpointCallback kinda makes this redundant...
