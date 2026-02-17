@@ -61,6 +61,20 @@ def run(action, cfg, tag=None):
                 model_mod=cfg.get("model_mod", "stable_baselines3"),
                 model_cls=cfg.get("model_cls", "PPO"),
             )
+        case "evaluate":
+            ensure_sb3_installed()
+            from .evaluate import evaluate
+
+            evaluate(
+                n_runs=cfg.get("n_runs", 500),
+                model_file=cfg["model_file"],
+                model_mod=cfg.get("model_mod", "sb3_contrib"),
+                model_cls=cfg.get("model_cls", "QRDQN"),
+                steps_per_step=cfg.get("steps_per_step", 4),
+                keep_top_n=cfg.get("keep_top_n", 10),
+                out_dir=cfg.get("out_dir", "data/evaluations"),
+                seed_start=cfg.get("seed_start", 0),
+            )
         case "train_bc":
             print_imitation_error_and_exit()
             ensure_imitation_installed()
@@ -281,6 +295,7 @@ action:
   train_rppo        train using Recurrent Proximal Policy Optimization (RPPO)
   train_a2c         train using Advantage Actor Critic (A2C)
   spectate          watch a trained model play QWOP, optionally recording actions
+  evaluate          run model multiple times and save best runs
   benchmark         evaluate the actions/s achievable with this env
   bootstrap         perform initial setup
   patch             apply patch to original QWOP.min.js code
