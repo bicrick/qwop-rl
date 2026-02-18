@@ -11,6 +11,7 @@ Usage:
 import gymnasium as gym
 import torch
 from qwop_gym.algorithms.discrete_sac import DiscreteSAC
+from qwop_gym.tools import common
 
 
 def test_cartpole():
@@ -50,7 +51,7 @@ def test_cartpole():
         use_per=False,  # Disable PER for simple test
         policy_kwargs={"net_arch": [64, 64]},  # Smaller network for CartPole
         verbose=1,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        device=common.get_device(),
     )
     
     print(f"\nDevice: {model.device}")

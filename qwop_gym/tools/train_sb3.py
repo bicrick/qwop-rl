@@ -15,6 +15,7 @@
 # =============================================================================
 
 from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common import logger
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.utils import safe_mean
@@ -53,6 +54,11 @@ def init_model(
     alg = None
     # Make a copy to avoid modifying the original (for metadata saving)
     model_kwargs = dict(learner_kwargs)
+    
+    # Inject device selection (cuda > mps > cpu)
+    device = common.get_device(model_kwargs.pop("device", "auto"))
+    model_kwargs["device"] = device
+    print(f"Using device: {device}")
 
     match learner_cls:
         case "A2C":
@@ -136,7 +142,7 @@ def init_model(
                 
                 data, params, pytorch_variables = load_from_zip_file(
                     model_load_file,
-                    device='cpu',
+                    device='cpu',  # Load to CPU first for compatibility, model will use correct device
                     print_system_info=False
                 )
                 
@@ -183,7 +189,25 @@ def init_model(
 # access to the SB3 log - and that's how user-defined values in `info`
 # (set by QwopEnv) can be logged into tensorboard.
 #
-def create_vec_env(seed, max_episode_steps, n_envs=1):
+def create_vec_env(seed, max_episode_steps, n_envs=1, vec_env_type="dummy"):
+    """
+    Create a vectorized environment.
+    
+    Args:
+        seed: Random seed for environment
+        max_episode_steps: Maximum steps per episode
+        n_envs: Number of parallel environments
+        vec_env_type: Type of vectorization - "dummy" (sequential) or "subproc" (parallel)
+    
+    Returns:
+        Vectorized environment
+    """
+    vec_env_cls = SubprocVecEnv if vec_env_type == "subproc" else None
+    
+    if vec_env_type == "subproc":
+        print(f"Using SubprocVecEnv with {n_envs} parallel environments")
+        print("Note: Each environment will spawn its own browser instance")
+    
     venv = make_vec_env(
         "local/QWOP-v1",
         n_envs=n_envs,
@@ -191,6 +215,7 @@ def create_vec_env(seed, max_episode_steps, n_envs=1):
         monitor_kwargs={"info_keywords": common.INFO_KEYS},
         wrapper_class=TimeLimit,
         wrapper_kwargs={"max_episode_steps": max_episode_steps},
+        vec_env_cls=vec_env_cls,
     )
 
     return venv
@@ -209,10 +234,12 @@ def train_sb3(
     out_dir_template,
     log_tensorboard,
     n_envs=1,
+    vec_env_type="dummy",
     demo_file=None,
     demo_injection_ratio=0.5,
+    demo_prefill_count=0,
 ):
-    venv = create_vec_env(seed, max_episode_steps, n_envs)
+    venv = create_vec_env(seed, max_episode_steps, n_envs, vec_env_type)
 
     try:
         out_dir = common.out_dir_from_template(out_dir_template, seed, run_id)
@@ -246,10 +273,13 @@ def train_sb3(
                 DQNfDCallback(
                     demo_file=demo_file,
                     injection_ratio=demo_injection_ratio,
+                    prefill_count=demo_prefill_count,
                     verbose=1,
                 )
             )
-            print(f"DQNfD enabled: injecting demos from {demo_file} at ratio {demo_injection_ratio}")
+            print(f"DQNfD enabled: demo_file={demo_file}, "
+                  f"injection_ratio={demo_injection_ratio}, "
+                  f"prefill_count={demo_prefill_count}")
 
         model.learn(
             total_timesteps=total_timesteps,

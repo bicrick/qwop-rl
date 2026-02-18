@@ -336,3 +336,31 @@ def save_run_metadata(action, cfg, duration, values):
 
     with open(md_file, "w") as f:
         f.write(yaml.safe_dump(metadata))
+
+
+def get_device(prefer: str = "auto") -> str:
+    """
+    Return best available PyTorch device for training.
+    
+    Selection order: cuda > mps > cpu
+    
+    Args:
+        prefer: Device preference. Can be "auto", "cuda", "mps", or "cpu".
+                If "auto", will automatically select best available device.
+    
+    Returns:
+        Device string: "cuda", "mps", or "cpu"
+    """
+    if prefer and prefer != "auto":
+        return prefer
+    
+    import torch
+    
+    if torch.cuda.is_available():
+        return "cuda"
+    
+    # Check for MPS (Apple Silicon) support
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    
+    return "cpu"

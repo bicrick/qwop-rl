@@ -48,12 +48,18 @@ class DQNfDCallback(BaseCallback):
             0.5 = inject 1 expert transition per 2 agent steps (Wesley's ratio)
             1.0 = inject 1 expert transition per agent step
             0.25 = inject 1 expert transition per 4 agent steps
+        prefill_count: Number of demo transitions to inject into the replay
+            buffer BEFORE any agent steps (at training_start). Cycles through
+            demos as many times as needed. Use this to ensure the buffer is
+            populated with correctly-scaled rewards before training begins.
+            0 = no pre-fill (default).
         verbose: Whether to print injection progress (default: 1)
     
     Example:
         >>> callback = DQNfDCallback(
         ...     demo_file="data/expert_demos.npz",
-        ...     injection_ratio=0.5,  # 50/50 mix
+        ...     injection_ratio=0.5,  # 50/50 mix during training
+        ...     prefill_count=300000, # fill entire buffer before training
         ... )
         >>> model.learn(total_timesteps=10_000_000, callback=callback)
     """
@@ -62,6 +68,7 @@ class DQNfDCallback(BaseCallback):
         self,
         demo_file: str,
         injection_ratio: float = 0.5,
+        prefill_count: int = 0,
         verbose: int = 1,
     ):
         super().__init__(verbose)
@@ -79,46 +86,64 @@ class DQNfDCallback(BaseCallback):
         self.n_demos = len(self.demo_actions)
         self.demo_idx = 0
         self.demo_epoch = 0
+        self.prefill_count = prefill_count
         
         # Injection parameters
         self.injection_ratio = injection_ratio
-        self.injection_interval = max(1, int(1 / injection_ratio))
+        self.injection_interval = max(1, int(1 / injection_ratio)) if injection_ratio > 0 else 0
         
         # Statistics
         self.total_injections = 0
         self.last_log_step = 0
         
         print(f"Loaded {self.n_demos} demonstration transitions")
-        print(f"Injection ratio: {injection_ratio} (1 demo per {self.injection_interval} steps)")
+        if prefill_count > 0:
+            print(f"Pre-fill count: {prefill_count} (will cycle {prefill_count // self.n_demos + 1}x through demos)")
+        if injection_ratio > 0:
+            print(f"Injection ratio: {injection_ratio} (1 demo per {self.injection_interval} steps during training)")
     
     def _on_training_start(self) -> None:
-        """Called at the beginning of training."""
-        # Verify replay buffer exists
+        """Called at the beginning of training - pre-fills the replay buffer."""
         if not hasattr(self.model, 'replay_buffer') or self.model.replay_buffer is None:
             raise ValueError(
                 "DQNfDCallback requires a model with a replay buffer. "
                 "This callback is compatible with DQN, QRDQN, and similar off-policy algorithms."
             )
         
-        # Log initial state
+        if self.prefill_count > 0:
+            buf_size = self.model.replay_buffer.buffer_size
+            actual_fill = min(self.prefill_count, buf_size)
+            print(f"\nPre-filling replay buffer with {actual_fill} demo transitions "
+                  f"(buffer capacity: {buf_size})...")
+            
+            for i in range(actual_fill):
+                idx = i % self.n_demos
+                self._inject_at(idx)
+                
+                if self.verbose > 0 and (i + 1) % 50000 == 0:
+                    print(f"  Pre-fill progress: {i + 1}/{actual_fill}")
+            
+            print(f"Pre-fill complete. Buffer is now {actual_fill / buf_size * 100:.0f}% full "
+                  f"with demo transitions.\n")
+        
         if self.verbose > 0:
-            print(f"\nDQNfD training started:")
+            print(f"DQNfD training started:")
             print(f"  Replay buffer size: {self.model.replay_buffer.buffer_size}")
             print(f"  Demonstrations: {self.n_demos} transitions")
-            print(f"  Injection interval: {self.injection_interval} steps")
+            if self.injection_interval > 0:
+                print(f"  Injection interval: {self.injection_interval} steps")
     
     def _on_step(self) -> bool:
         """
         Called after each environment step.
         
         Injects expert demonstrations into the replay buffer at the configured
-        injection_ratio.
+        injection_ratio. Skipped if injection_ratio is 0.
         
         Returns:
             True to continue training, False to stop
         """
-        # Check if we should inject a demonstration this step
-        if self.num_timesteps % self.injection_interval == 0:
+        if self.injection_interval > 0 and self.num_timesteps % self.injection_interval == 0:
             self._inject_demonstration()
             self.total_injections += 1
         
@@ -129,32 +154,21 @@ class DQNfDCallback(BaseCallback):
         
         return True
     
-    def _inject_demonstration(self) -> None:
-        """
-        Inject one expert transition into the replay buffer.
-        
-        The demonstration is added exactly like a transition from the agent's
-        own experience, so the learning algorithm treats it identically.
-        """
-        # Get current demonstration transition
-        obs = self.demo_obs[self.demo_idx]
-        action = self.demo_actions[self.demo_idx]
-        reward = self.demo_rewards[self.demo_idx]
-        next_obs = self.demo_next_obs[self.demo_idx]
-        done = self.demo_dones[self.demo_idx]
-        
-        # Add to replay buffer
-        # Note: SB3 replay buffers expect arrays with batch dimension
+    def _inject_at(self, idx: int) -> None:
+        """Inject the demonstration at index `idx` into the replay buffer."""
         self.model.replay_buffer.add(
-            obs=obs.reshape(1, -1),
-            next_obs=next_obs.reshape(1, -1),
-            action=np.array([action]),
-            reward=np.array([reward]),
-            done=np.array([done]),
+            obs=self.demo_obs[idx].reshape(1, -1),
+            next_obs=self.demo_next_obs[idx].reshape(1, -1),
+            action=np.array([self.demo_actions[idx]]),
+            reward=np.array([self.demo_rewards[idx]]),
+            done=np.array([self.demo_dones[idx]]),
             infos=[{}],
         )
+
+    def _inject_demonstration(self) -> None:
+        """Inject the next demo transition into the replay buffer and advance the cursor."""
+        self._inject_at(self.demo_idx)
         
-        # Move to next demonstration (cycle through)
         self.demo_idx += 1
         if self.demo_idx >= self.n_demos:
             self.demo_idx = 0

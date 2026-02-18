@@ -180,12 +180,14 @@ def run(action, cfg, tag=None):
                     "max_episode_steps": cfg.get("max_episode_steps", 5000),
                     "n_checkpoints": cfg.get("n_checkpoints", 5),
                     "n_envs": cfg.get("n_envs", 1),
+                    "vec_env_type": cfg.get("vec_env_type", "dummy"),
                     "learner_lr_schedule": cfg.get(
                         "learner_lr_schedule", "const_0.003"
                     ),
                     # DQNfD parameters (optional)
                     "demo_file": cfg.get("demo_file", None),
                     "demo_injection_ratio": cfg.get("demo_injection_ratio", 0.5),
+                    "demo_prefill_count": cfg.get("demo_prefill_count", 0),
                 }
             )
 

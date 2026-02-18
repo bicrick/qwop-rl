@@ -26,9 +26,23 @@ max_episode_steps: 5000
 # Example: 5 means save at 20%, 40%, 60%, 80% and 100% progress
 n_checkpoints: 5
 
+# [int] Number of parallel environments (default: 1)
+# Using multiple environments can speed up training, but uses more memory
+n_envs: 1
+
+# [string] Vectorization type: "dummy" (sequential) or "subproc" (parallel)
+# - "dummy": Environments run sequentially in one process (default, lower memory)
+# - "subproc": Environments run in parallel processes (faster, higher memory)
+# Note: Each environment spawns a browser instance. With n_envs=8 and vec_env_type="subproc",
+#       you will have 8 Chrome instances running in parallel.
+vec_env_type: "dummy"
+
 # DQN algorithm parameters (used only if `model_load_file` is blank)
 # https://stable-baselines3.readthedocs.io/en/master/modules/dqn.html#stable_baselines3.dqn.DQN
 learner_kwargs:
+  # [string] Device for PyTorch: "auto" (cuda > mps > cpu), "cuda", "mps", or "cpu"
+  # "auto" will automatically select the best available device
+  device: "auto"
   policy: "MlpPolicy"
   buffer_size: 100000
   learning_starts: 100000
